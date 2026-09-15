@@ -22,6 +22,8 @@ internal class Resource private constructor(
     val appBuild: String?,
     val environment: String,
     private val installId: String,
+    private val platform: String,
+    private val sdkName: String,
 ) {
     private val processStart = SystemClock.elapsedRealtime()
 
@@ -35,9 +37,9 @@ internal class Resource private constructor(
         Attr.DEVICE_MODEL to Build.MODEL,
         Attr.DEVICE_MANUFACTURER to Build.MANUFACTURER,
         Attr.DEVICE_ID to installId,
-        Attr.SDK_NAME to Trel.SDK_NAME,
+        Attr.SDK_NAME to sdkName,
         Attr.SDK_VERSION to Trel.SDK_VERSION,
-        Attr.PLATFORM to "android",
+        Attr.PLATFORM to platform,
         Attr.APP_PACKAGE to appPackage,
         Attr.APP_BUILD to appBuild,
         "os.api_level" to Build.VERSION.SDK_INT,
@@ -122,6 +124,8 @@ internal class Resource private constructor(
                 appBuild = versionCode,
                 environment = options.environment,
                 installId = installId,
+                platform = options.platform,
+                sdkName = options.sdkName,
             )
         }
     }

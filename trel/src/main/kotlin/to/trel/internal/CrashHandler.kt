@@ -21,8 +21,13 @@ internal object CrashHandler : Thread.UncaughtExceptionHandler {
 
     override fun uncaughtException(thread: Thread, throwable: Throwable) {
         try {
-            val event = trel.buildEvent(throwable, mechanism = "crash", thread = thread)
-            trel.enqueueEvent(event, fatal = true, sync = true)
+            // A fatal JS error already reported by the React Native SDK re-surfaces here as
+            // com.facebook.react.common.JavascriptException; count the crash, skip the duplicate.
+            val jsDuplicate = trel.jsFatalReported && throwable.javaClass.name.contains("JavascriptException")
+            if (!jsDuplicate) {
+                val event = trel.buildEvent(throwable, mechanism = "crash", thread = thread)
+                trel.enqueueEvent(event, fatal = true, sync = true)
+            }
             trel.session.markCrashed()
         } catch (_: Throwable) {
             // never mask the original crash

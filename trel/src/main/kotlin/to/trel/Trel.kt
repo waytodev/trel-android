@@ -168,6 +168,10 @@ object Trel {
     @JvmStatic
     val sessionId: String? get() = if (isStarted) session.id else null
 
+    /** Release the SDK reports (`versionName+versionCode` unless overridden). */
+    @JvmStatic
+    val release: String? get() = if (isStarted) resource.release else null
+
     /* ------------------------------------------------------------- http spans */
 
     /**
@@ -232,6 +236,56 @@ object Trel {
                     ),
                 )
             }
+        }
+    }
+
+    /* ------------------------------------------------------- wrapping SDKs (RN) */
+
+    /** Set by the React Native module after it reports a fatal JS error, so the native re-throw is not double counted. */
+    @Volatile
+    @JvmStatic
+    var jsFatalReported: Boolean = false
+
+    /**
+     * Reports an exception described by a wrapping runtime (React Native / Hermes). `stacktrace`
+     * is in that runtime's native format; ingest parses Hermes, V8, Java and Apple stacks.
+     */
+    @JvmStatic
+    fun captureRuntimeException(
+        type: String,
+        message: String,
+        stacktrace: String,
+        mechanism: String,
+        attributes: Map<String, Any?>? = null,
+        fatal: Boolean = false,
+    ) {
+        if (!isStarted) return
+        val attrs = baseAttributes(attributes)
+        attrs[Attr.THREAD_NAME] = "js"
+        val event = TrelEvent(type = type, message = message, stacktrace = stacktrace, mechanism = mechanism, attributes = attrs)
+        if (fatal) {
+            jsFatalReported = true
+            enqueueEvent(event, fatal = true, sync = true)
+            session.markCrashed()
+            transport.scheduleSoon(0)
+        } else {
+            enqueueEvent(event, fatal = false, sync = false)
+            session.markErrored(queue)
+        }
+    }
+
+    /** Enqueues pre-built OTLP records (JSON array of log records or spans) from a wrapping runtime. */
+    @JvmStatic
+    fun enqueueRecords(kind: String, recordsJson: String) {
+        if (!isStarted) return
+        try {
+            val arr = org.json.JSONArray(recordsJson)
+            for (i in 0 until arr.length()) {
+                val rec = arr.optJSONObject(i) ?: continue
+                if (kind == "traces") queue.enqueueSpan(rec) else queue.enqueueLog(rec)
+            }
+        } catch (t: Throwable) {
+            debug("enqueueRecords: bad payload: $t")
         }
     }
 

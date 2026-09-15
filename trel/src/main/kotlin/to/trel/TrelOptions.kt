@@ -34,6 +34,10 @@ class TrelOptions(
     val enableScreenSpans: Boolean = false,
     /** Print SDK diagnostics to logcat. */
     val debug: Boolean = false,
+    /** `trel.platform` resource attribute. The React Native SDK sets `react-native`; leave as is otherwise. */
+    val platform: String = "android",
+    /** `telemetry.sdk.name` resource attribute. Wrapping SDKs (React Native) override it. */
+    val sdkName: String = "trel-android",
     /**
      * Last chance to modify or drop an event. Return `null` to drop. Called on the capturing thread;
      * for crashes this is the crashing thread, so keep it fast and allocation-light.
