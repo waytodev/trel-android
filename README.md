@@ -82,4 +82,6 @@ export ORG_GRADLE_PROJECT_signingInMemoryKeyPassword=…
 ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
 ```
 
+Then, from the monorepo root with a clean tree, refresh the public mirror at `github.com/waytodev/trel-android` (also tags `v<version>`): `pnpm mirror:sdks android`.
+
 Local check without credentials: `./gradlew assembleRelease` (AARs in `*/build/outputs/aar`).
