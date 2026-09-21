@@ -54,6 +54,9 @@ internal class AnrWatchdog(private val trel: Trel, private val timeoutMs: Long) 
         val message = "Application Not Responding for at least ${stalledMs / 1000}s"
         val attrs = trel.baseAttributes(null)
         attrs[Attr.THREAD_NAME] = mainThread.name
+        attrs[Attr.THREADS] = allThreadsJson(mainThread)
+        val shot = if (trel.options.screenshotOnError) trel.captureScreenshot(trel.options.maskAllText) else null
+        if (shot != null) attrs[Attr.SCREENSHOT_ID] = shot
         val event = TrelEvent(
             type = "ANR",
             message = message,
@@ -66,5 +69,23 @@ internal class AnrWatchdog(private val trel: Trel, private val timeoutMs: Long) 
         trel.enqueueEvent(event, fatal = true, sync = true)
         trel.session.markCrashed()
         trel.transport.scheduleSoon(0)
+    }
+
+    private fun allThreadsJson(mainThread: Thread): String {
+        val arr = org.json.JSONArray()
+        for ((thread, frames) in Thread.getAllStackTraces()) {
+            if (arr.length() >= 32) break
+            val stack = buildString {
+                append('"').append(thread.name).append("\"\n")
+                for (frame in frames.take(40)) append("\tat ").append(frame).append('\n')
+            }
+            arr.put(
+                org.json.JSONObject()
+                    .put("name", thread.name)
+                    .put("crashed", thread == mainThread)
+                    .put("stack", stack),
+            )
+        }
+        return arr.toString().take(48 * 1024)
     }
 }

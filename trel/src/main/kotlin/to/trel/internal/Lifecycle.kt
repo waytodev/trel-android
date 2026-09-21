@@ -23,12 +23,16 @@ internal class Lifecycle(private val context: Context, private val trel: Trel) :
     var isForeground: Boolean = false
         private set
 
+    @Volatile
+    var currentActivity: Activity? = null
+
     fun install(app: Application) {
         app.registerActivityLifecycleCallbacks(this)
         app.registerComponentCallbacks(this)
     }
 
     private fun crumb(activity: Activity, state: String) {
+        if (trel.options.platform == "react-native") return
         trel.addBreadcrumb(
             Breadcrumb(
                 message = "${activity.javaClass.simpleName} $state",
@@ -51,6 +55,7 @@ internal class Lifecycle(private val context: Context, private val trel: Trel) :
     }
 
     override fun onActivityResumed(activity: Activity) {
+        currentActivity = activity
         crumb(activity, "resumed")
         if (trel.options.enableScreenSpans) {
             screenName = activity.javaClass.simpleName
@@ -91,7 +96,10 @@ internal class Lifecycle(private val context: Context, private val trel: Trel) :
     }
 
     override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
-    override fun onActivityDestroyed(activity: Activity) = crumb(activity, "destroyed")
+    override fun onActivityDestroyed(activity: Activity) {
+        if (currentActivity === activity) currentActivity = null
+        crumb(activity, "destroyed")
+    }
 
     override fun onTrimMemory(level: Int) {
         if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {

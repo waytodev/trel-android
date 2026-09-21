@@ -34,6 +34,12 @@ class TrelOptions(
     val enableScreenSpans: Boolean = false,
     /** Print SDK diagnostics to logcat. */
     val debug: Boolean = false,
+    /** Capture a screenshot when reporting an unhandled error or ANR. */
+    var screenshotOnError: Boolean = true,
+    /** Black out text views before encoding a screenshot or replay frame. */
+    var maskAllText: Boolean = false,
+    /** Chance (0..1) of recording a screenshot replay for this process. Default off. */
+    var replaySampleRate: Double = 0.0,
     /** `trel.platform` resource attribute. The React Native SDK sets `react-native`; leave as is otherwise. */
     val platform: String = "android",
     /** `telemetry.sdk.name` resource attribute. Wrapping SDKs (React Native) override it. */

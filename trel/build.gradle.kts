@@ -12,6 +12,20 @@ android {
         minSdk = 21
         consumerProguardFiles("consumer-rules.pro")
         buildConfigField("String", "SDK_VERSION", "\"${project.version}\"")
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+        }
+        externalNativeBuild {
+            cmake {
+                arguments += "-DANDROID_STL=c++_static"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+        }
     }
 
     buildFeatures {

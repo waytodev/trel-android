@@ -5,7 +5,9 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkRequest
 import android.os.Build
+import to.trel.Breadcrumb
 import to.trel.Trel
+import to.trel.TrelLevel
 import to.trel.TrelOptions
 import java.io.File
 import java.net.HttpURLConnection
@@ -89,6 +91,7 @@ internal class Transport(
                     Outcome.DISABLED -> { disabled = true; return }
                 }
             }
+            drainAttachments()
         } catch (t: Throwable) {
             Trel.debug("send loop error: $t")
         } finally {
@@ -134,6 +137,56 @@ internal class Transport(
         }
     }
 
+    private fun drainAttachments() {
+        val items = runCatching { Trel.attachments.pending() }.getOrNull() ?: return
+        for ((meta, file) in items) {
+            if (disabled) return
+            when (postAttachment(meta, file)) {
+                Outcome.SENT, Outcome.DROP -> Trel.attachments.delete(meta.optString("id"))
+                Outcome.RETRY -> return
+                Outcome.DISABLED -> { disabled = true; return }
+            }
+        }
+    }
+
+    private fun postAttachment(meta: org.json.JSONObject, file: File): Outcome {
+        val body = runCatching { file.readBytes() }.getOrNull() ?: return Outcome.DROP
+        if (body.isEmpty()) return Outcome.DROP
+        val type = meta.optString("type", "screenshot")
+        val contentType = if (type == "profile") "application/json" else "image/jpeg"
+        var conn: HttpURLConnection? = null
+        return try {
+            conn = (URL(options.endpoint.trimEnd('/') + "/v1/attachments").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = 10_000
+                readTimeout = 15_000
+                doOutput = true
+                setRequestProperty("Content-Type", contentType)
+                setRequestProperty("x-trel-key", options.apiKey)
+                setRequestProperty("x-trel-attachment-type", type)
+                setRequestProperty("x-trel-attachment-id", meta.optString("id"))
+                setRequestProperty("x-trel-session", meta.optString("sessionId"))
+                setRequestProperty("x-trel-event", meta.optString("eventId"))
+                setRequestProperty("x-trel-trace", meta.optString("traceId"))
+                setRequestProperty("x-trel-ts", meta.optLong("ts").toString())
+                setRequestProperty("x-trel-sdk", "${Trel.SDK_NAME}/${Trel.SDK_VERSION}")
+            }
+            conn.outputStream.use { it.write(body) }
+            val code = conn.responseCode
+            runCatching { (if (code >= 400) conn.errorStream else conn.inputStream)?.use { it.readBytes() } }
+            when {
+                code in 200..299 -> Outcome.SENT
+                code == 402 -> Outcome.DISABLED
+                code == 429 || code >= 500 -> Outcome.RETRY
+                else -> Outcome.DROP
+            }
+        } catch (_: Throwable) {
+            Outcome.RETRY
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
     private fun registerNetworkCallback() {
         if (Build.VERSION.SDK_INT < 24) return
         runCatching {
@@ -142,8 +195,13 @@ internal class Transport(
                 NetworkRequest.Builder().build(),
                 object : ConnectivityManager.NetworkCallback() {
                     override fun onAvailable(network: Network) {
+                        Trel.addBreadcrumb(Breadcrumb("network available", category = "app.connectivity"))
                         nextAllowedAt = 0
                         scheduleSoon(500)
+                    }
+
+                    override fun onLost(network: Network) {
+                        Trel.addBreadcrumb(Breadcrumb("network lost", category = "app.connectivity", level = TrelLevel.WARN))
                     }
                 },
             )

@@ -6,11 +6,16 @@ import android.content.Context.BATTERY_SERVICE
 import android.content.res.Configuration
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Build
 import android.os.SystemClock
+import android.util.DisplayMetrics
 import to.trel.Trel
 import to.trel.TrelOptions
+import java.util.Locale
+import java.util.TimeZone
 import java.util.UUID
 
 /** Resource attributes for every payload plus best-effort device state per event. */
@@ -83,6 +88,23 @@ internal class Resource private constructor(
             val mi = ActivityManager.MemoryInfo()
             am?.getMemoryInfo(mi)
             into[Attr.FREE_MEMORY] = mi.availMem
+            into[Attr.TOTAL_MEMORY] = mi.totalMem
+        }
+        runCatching {
+            val sticky = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            val status = sticky?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+            into[Attr.BATTERY_CHARGING] = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+        }
+        runCatching {
+            val dm: DisplayMetrics = context.resources.displayMetrics
+            into[Attr.SCREEN] = "${dm.widthPixels}x${dm.heightPixels}@${dm.density}"
+        }
+        runCatching { into[Attr.LOCALE] = Locale.getDefault().toLanguageTag() }
+        runCatching { into[Attr.TIMEZONE] = TimeZone.getDefault().id }
+        runCatching { into[Attr.ARCH] = Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown" }
+        runCatching {
+            val fp = Build.FINGERPRINT + Build.MODEL + Build.PRODUCT
+            into[Attr.SIMULATOR] = fp.contains("generic", true) || fp.contains("emulator", true) || fp.contains("sdk", true)
         }
         runCatching {
             into[Attr.ORIENTATION] = when (context.resources.configuration.orientation) {

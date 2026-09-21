@@ -20,6 +20,11 @@ internal class Scope(private val maxBreadcrumbs: Int) {
     private val lock = Any()
     private val crumbs = ArrayDeque<Breadcrumb>(maxBreadcrumbs)
     private val tagMap = LinkedHashMap<String, String>()
+    private val contexts = LinkedHashMap<String, String>()
+    private val runtime = LinkedHashMap<String, Any?>()
+
+    @Volatile
+    var screenName: String? = null
 
     @Volatile
     var user: User = User.EMPTY
@@ -42,6 +47,29 @@ internal class Scope(private val maxBreadcrumbs: Int) {
                 tagMap[k] = value.take(200)
             }
             Unit
+        }
+    }
+
+    fun setContext(name: String, json: String?) {
+        val key = name.trim().take(64)
+        if (key.isEmpty()) return
+        synchronized(lock) {
+            if (json == null) contexts.remove(key) else contexts[key] = json.take(8_000)
+        }
+    }
+
+    fun setRuntime(values: Map<String, Any?>) {
+        synchronized(lock) {
+            runtime.clear()
+            runtime.putAll(values)
+        }
+    }
+
+    fun apply(attrs: MutableMap<String, Any?>) {
+        synchronized(lock) {
+            screenName?.let { attrs[Attr.SCREEN_NAME] = it }
+            contexts.forEach { (k, v) -> attrs[Attr.CONTEXT_PREFIX + k] = v }
+            runtime.forEach { (k, v) -> if (v != null) attrs[k] = v }
         }
     }
 

@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.13)
+project(trelndk C)
+add_library(trelndk SHARED trel_ndk.c)
+find_library(log-lib log)
+target_link_libraries(trelndk ${log-lib})

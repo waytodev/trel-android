@@ -4,16 +4,23 @@ import android.app.Application
 import android.content.Context
 import android.util.Log
 import to.trel.internal.AnrWatchdog
+import to.trel.internal.Attachments
 import to.trel.internal.Attr
 import to.trel.internal.CrashHandler
 import to.trel.internal.ExitInfoReader
+import to.trel.internal.Frames
 import to.trel.internal.Lifecycle
+import to.trel.internal.Ndk
+import to.trel.internal.NdkCrashReader
 import to.trel.internal.Otlp
 import to.trel.internal.Queue
+import to.trel.internal.Replay
 import to.trel.internal.Resource
 import to.trel.internal.Scope
+import to.trel.internal.Screenshot
 import to.trel.internal.Session
 import to.trel.internal.StackTraces
+import to.trel.internal.ThreadSampler
 import to.trel.internal.Transport
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -47,7 +54,9 @@ object Trel {
     internal lateinit var transport: Transport
     internal lateinit var session: Session
     internal lateinit var lifecycle: Lifecycle
+    internal lateinit var attachments: Attachments
     private var anrWatchdog: AnrWatchdog? = null
+    private var frames: Frames? = null
 
     val isStarted: Boolean get() = started.get()
 
@@ -62,6 +71,7 @@ object Trel {
         resource = Resource.build(app, options)
         scope = Scope(options.maxBreadcrumbs)
         queue = Queue(app)
+        attachments = Attachments(app)
         session = Session(app, resource)
         transport = Transport(app, options, queue)
         lifecycle = Lifecycle(app, this)
@@ -73,11 +83,26 @@ object Trel {
         session.start(queue)
 
         CrashHandler.install(this)
+        Ndk.install(java.io.File(app.filesDir, "trel/ndk-crash.txt"))
+        NdkCrashReader.report(app, this)
+        ThreadSampler(this).start()
+        if (options.replaySampleRate > 0 && Math.random() < options.replaySampleRate) Replay.start(this)
         if (options.enableAnr) anrWatchdog = AnrWatchdog(this, options.anrTimeoutMs).also { it.start() }
         if (app is Application) lifecycle.install(app)
+        frames = Frames().also { it.start() }
 
         transport.start()
         debug("started v$SDK_VERSION release=${resource.release} env=${options.environment}")
+    }
+
+    /** JS `init` after a ContentProvider start: capture flags only. Hooks stay in JavaScript. */
+    @JvmStatic
+    fun configureCapture(screenshotOnError: Boolean, maskAllText: Boolean, replaySampleRate: Double) {
+        if (!isStarted) return
+        options.screenshotOnError = screenshotOnError
+        options.maskAllText = maskAllText
+        options.replaySampleRate = replaySampleRate
+        if (replaySampleRate > 0 && Math.random() < replaySampleRate) Replay.start(this)
     }
 
     /* ----------------------------------------------------------------- capture */
@@ -156,6 +181,64 @@ object Trel {
         scope.setTag(key, value)
     }
 
+    /** Current route. Stored as `trel.screen.name` and the `screen` tag. */
+    @JvmStatic
+    fun setScreen(name: String?) {
+        if (!isStarted) return
+        scope.screenName = name?.take(120)
+        scope.setTag("screen", name?.take(200))
+    }
+
+    /** Structured context JSON stored as `trel.context.<name>`. */
+    @JvmStatic
+    fun setContext(name: String, json: String?) {
+        if (!isStarted) return
+        scope.setContext(name, json)
+    }
+
+    /** Runtime attributes (`trel.rn.*`) copied onto every later event. */
+    @JvmStatic
+    fun setRuntime(json: String) {
+        if (!isStarted) return
+        val map = LinkedHashMap<String, Any?>()
+        runCatching {
+            val obj = org.json.JSONObject(json)
+            for (key in obj.keys()) map[key] = obj.opt(key)
+        }
+        scope.setRuntime(map)
+    }
+
+    /** Writes a JPEG of the current window into the attachment queue. Returns its id, or null. */
+    @JvmStatic
+    fun captureScreenshot(maskText: Boolean, id: String? = null): String? {
+        if (!isStarted) return null
+        return Screenshot.capture(lifecycle, maskText || options.maskAllText)?.let { bytes ->
+            attachments.enqueue("screenshot", bytes, eventId = id, traceId = null, sessionId = session.id, fatal = true, forcedId = id)
+        }
+    }
+
+    @JvmStatic
+    fun enqueueAttachment(type: String, body: ByteArray, eventId: String?, traceId: String?, fatal: Boolean = false): String? {
+        if (!isStarted) return null
+        return attachments.enqueue(type, body, eventId, traceId, session.id, fatal)
+    }
+
+    @JvmStatic
+    fun enqueueFile(type: String, path: String, eventId: String?, traceId: String?): String? {
+        if (!isStarted) return null
+        val bytes = runCatching { java.io.File(path).readBytes() }.getOrNull() ?: return null
+        return enqueueAttachment(type, bytes, eventId, traceId, false)
+    }
+
+    /** Slow and frozen frame counts since the previous call. */
+    @JvmStatic
+    fun consumeFrameStats(): Pair<Int, Int> = if (isStarted) frames?.consume() ?: (0 to 0) else 0 to 0
+
+    @JvmStatic
+    fun setReplayPaused(paused: Boolean) {
+        if (isStarted) Replay.paused = paused
+    }
+
     /** Blocks (up to [timeoutMs]) until the queue has been sent. Call before `System.exit`. */
     @JvmStatic
     @JvmOverloads
@@ -171,6 +254,9 @@ object Trel {
     /** Release the SDK reports (`versionName+versionCode` unless overridden). */
     @JvmStatic
     val release: String? get() = if (isStarted) resource.release else null
+
+    @JvmStatic
+    fun uptimeMs(): Long = if (isStarted) resource.uptimeMs() else 0
 
     /* ------------------------------------------------------------- http spans */
 
@@ -308,6 +394,7 @@ object Trel {
         extra?.forEach { (k, v) -> attrs[k] = v }
         scope.user.applyTo(attrs)
         scope.tags.forEach { (k, v) -> attrs[Attr.TAG_PREFIX + k] = v }
+        scope.apply(attrs)
         attrs[Attr.SESSION_ID] = session.id
         attrs[Attr.APP_STATE] = if (lifecycle.isForeground) "foreground" else "background"
         attrs[Attr.APP_UPTIME_MS] = resource.uptimeMs()
