@@ -6,8 +6,8 @@ Crashes, ANRs, handled errors, breadcrumbs, sessions, HTTP spans and logs for An
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("to.trel:trel:0.1.0")
-    implementation("to.trel:trel-okhttp:0.1.0") // optional: HTTP client spans
+    implementation("to.trel:trel:0.2.0")
+    implementation("to.trel:trel-okhttp:0.2.0") // optional: HTTP client spans
 }
 ```
 
