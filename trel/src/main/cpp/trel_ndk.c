@@ -11,6 +11,7 @@
 static char g_path[512];
 static struct sigaction g_old[32];
 static int g_ready = 0;
+static volatile sig_atomic_t g_handling = 0;
 
 struct Bt {
     char buf[48 * 1024];
@@ -44,8 +45,10 @@ static _Unwind_Reason_Code walk(struct _Unwind_Context *ctx, void *arg) {
 }
 
 static void handle(int sig, siginfo_t *info, void *ucontext) {
-    if (g_ready) {
-        struct Bt st;
+    if (g_ready && !g_handling) {
+        g_handling = 1;
+        // Static, not on the stack: the handler runs on the ~16-32 KB sigaltstack (SA_ONSTACK).
+        static struct Bt st;
         memset(&st, 0, sizeof(st));
         int n = snprintf(st.buf, sizeof(st.buf), "SIG %d at %p\n", sig, info ? info->si_addr : 0);
         if (n > 0) st.used = n;

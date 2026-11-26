@@ -3,6 +3,7 @@ package to.trel.internal
 import android.os.Debug
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import to.trel.Trel
 import to.trel.TrelEvent
 import java.util.concurrent.atomic.AtomicLong
@@ -15,8 +16,8 @@ import java.util.concurrent.atomic.AtomicLong
  */
 internal class AnrWatchdog(private val trel: Trel, private val timeoutMs: Long) : Thread("trel-anr-watchdog") {
     private val main = Handler(Looper.getMainLooper())
-    private val lastTick = AtomicLong(System.currentTimeMillis())
-    private val tick = Runnable { lastTick.set(System.currentTimeMillis()) }
+    private val lastTick = AtomicLong(SystemClock.uptimeMillis())
+    private val tick = Runnable { lastTick.set(SystemClock.uptimeMillis()) }
 
     @Volatile
     private var reported = false
@@ -28,11 +29,11 @@ internal class AnrWatchdog(private val trel: Trel, private val timeoutMs: Long) 
     override fun run() {
         while (!isInterrupted) {
             try {
-                lastTick.set(System.currentTimeMillis())
+                lastTick.set(SystemClock.uptimeMillis())
                 main.post(tick)
                 sleep(1_000)
                 if (Debug.isDebuggerConnected() || Debug.waitingForDebugger()) continue
-                val stalled = System.currentTimeMillis() - lastTick.get()
+                val stalled = SystemClock.uptimeMillis() - lastTick.get()
                 if (stalled >= timeoutMs) {
                     if (!reported) {
                         reported = true

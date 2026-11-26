@@ -114,9 +114,9 @@ internal class Transport(
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
                 setRequestProperty("Content-Encoding", "gzip")
-                setRequestProperty("x-trel-key", options.apiKey)
-                setRequestProperty("x-trel-environment", options.environment)
-                setRequestProperty("x-trel-release", Trel.resource.release)
+                setRequestProperty("x-trel-key", header(options.apiKey))
+                setRequestProperty("x-trel-environment", header(options.environment))
+                setRequestProperty("x-trel-release", header(Trel.resource.release))
                 setRequestProperty("x-trel-sdk", "${Trel.SDK_NAME}/${Trel.SDK_VERSION}")
                 setRequestProperty("User-Agent", "${Trel.SDK_NAME}/${Trel.SDK_VERSION} (Android ${Build.VERSION.RELEASE})")
             }
@@ -162,7 +162,7 @@ internal class Transport(
                 readTimeout = 15_000
                 doOutput = true
                 setRequestProperty("Content-Type", contentType)
-                setRequestProperty("x-trel-key", options.apiKey)
+                setRequestProperty("x-trel-key", header(options.apiKey))
                 setRequestProperty("x-trel-attachment-type", type)
                 setRequestProperty("x-trel-attachment-id", meta.optString("id"))
                 setRequestProperty("x-trel-session", meta.optString("sessionId"))
@@ -215,3 +215,7 @@ internal class Transport(
         const val MAX_BACKOFF_MS = 5 * 60_000L
     }
 }
+
+/** HTTP header values must be single-line printable ASCII; anything else throws in HttpURLConnection. */
+internal fun header(value: String?): String =
+    (value ?: "").trim().filter { it in ' '..'~' }

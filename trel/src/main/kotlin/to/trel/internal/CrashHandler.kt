@@ -32,7 +32,14 @@ internal object CrashHandler : Thread.UncaughtExceptionHandler {
         } catch (_: Throwable) {
             // never mask the original crash
         } finally {
-            previous?.uncaughtException(thread, throwable)
+            val next = previous
+            if (next != null) {
+                next.uncaughtException(thread, throwable)
+            } else {
+                // No system/other handler to chain to: without this the dead thread leaves a frozen app.
+                android.os.Process.killProcess(android.os.Process.myPid())
+                kotlin.system.exitProcess(10)
+            }
         }
     }
 }

@@ -47,6 +47,10 @@ object Trel {
 
     private val started = AtomicBoolean(false)
 
+    /** True only once every component exists; `started` alone guards against double init. */
+    @Volatile
+    private var ready = false
+
     internal lateinit var options: TrelOptions
     internal lateinit var resource: Resource
     internal lateinit var scope: Scope
@@ -58,7 +62,7 @@ object Trel {
     private var anrWatchdog: AnrWatchdog? = null
     private var frames: Frames? = null
 
-    val isStarted: Boolean get() = started.get()
+    val isStarted: Boolean get() = ready
 
     @JvmStatic
     fun init(context: Context, options: TrelOptions) {
@@ -66,7 +70,17 @@ object Trel {
             debug("init called twice; ignoring")
             return
         }
-        val app = context.applicationContext
+        try {
+            boot(context.applicationContext ?: context, options)
+            ready = true
+            debug("started v$SDK_VERSION release=${resource.release} env=${options.environment}")
+        } catch (t: Throwable) {
+            // Never take the app down from init (ContentProvider start = crash loop on every launch).
+            android.util.Log.w(TAG, "init failed; Trel is disabled", t)
+        }
+    }
+
+    private fun boot(app: Context, options: TrelOptions) {
         this.options = options
         resource = Resource.build(app, options)
         scope = Scope(options.maxBreadcrumbs)
@@ -92,7 +106,6 @@ object Trel {
         frames = Frames().also { it.start() }
 
         transport.start()
-        debug("started v$SDK_VERSION release=${resource.release} env=${options.environment}")
     }
 
     /** JS `init` after a ContentProvider start: capture flags only. Hooks stay in JavaScript. */

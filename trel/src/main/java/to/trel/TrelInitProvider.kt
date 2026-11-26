@@ -21,15 +21,18 @@ class TrelInitProvider : ContentProvider() {
         val meta = runCatching {
             app.packageManager.getApplicationInfo(app.packageName, PackageManager.GET_META_DATA).metaData
         }.getOrNull()
-        Trel.init(
-            app,
-            TrelOptions(
-                apiKey = key,
-                environment = meta?.getString(META_ENV) ?: "production",
-                release = meta?.getString(META_RELEASE),
-                platform = meta?.getString(META_PLATFORM) ?: "android",
-            ),
-        )
+        runCatching {
+            Trel.init(
+                app,
+                TrelOptions(
+                    apiKey = key.trim(),
+                    environment = meta?.getString(META_ENV) ?: "production",
+                    // Numeric-looking values (release "2") are stored as numbers, so read them generically.
+                    release = meta?.get(META_RELEASE)?.toString(),
+                    platform = meta?.getString(META_PLATFORM) ?: "android",
+                ),
+            )
+        }
         return true
     }
 

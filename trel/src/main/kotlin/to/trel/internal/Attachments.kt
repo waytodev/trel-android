@@ -24,9 +24,16 @@ internal class Attachments(context: Context) {
         eventId?.let { meta.put("eventId", it) }
         traceId?.let { meta.put("traceId", it) }
         sessionId?.let { meta.put("sessionId", it) }
-        File(dir, "$id.json").writeText(meta.toString())
-        File(dir, "$id.bin").writeBytes(capped)
-        if (!fatal) trim()
+        try {
+            File(dir, "$id.bin").writeBytes(capped)
+            File(dir, "$id.json").writeText(meta.toString())
+        } catch (t: Throwable) {
+            // Full disk / IO error: drop the attachment, never the app.
+            File(dir, "$id.bin").delete()
+            Trel.debug("attachment write failed: $t")
+            return id
+        }
+        if (!fatal) runCatching { trim() }
         Trel.transport.scheduleSoon(2_000)
         return id
     }

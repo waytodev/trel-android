@@ -15,10 +15,15 @@ internal object Otlp {
             null -> return null
             is Boolean -> o.put("boolValue", v)
             is Int, is Long, is Short, is Byte -> o.put("intValue", v.toString())
-            is Float, is Double -> o.put("doubleValue", (v as Number).toDouble())
+            is Float, is Double -> {
+                val d = (v as Number).toDouble()
+                // JSONObject.put throws on NaN/Infinity.
+                if (d.isFinite()) o.put("doubleValue", d) else o.put("stringValue", d.toString())
+            }
             is String -> o.put("stringValue", v.take(MAX_STRING))
-            is Map<*, *> -> o.put("stringValue", JSONObject(v.mapKeys { it.key.toString() }).toString().take(MAX_STRING))
-            is Iterable<*> -> o.put("stringValue", JSONArray(v.toList()).toString().take(MAX_STRING))
+            // `toString()` returns null when a nested value is NaN/Infinity.
+            is Map<*, *> -> o.put("stringValue", (runCatching { JSONObject(v.mapKeys { it.key.toString() }).toString() }.getOrNull() ?: v.toString()).take(MAX_STRING))
+            is Iterable<*> -> o.put("stringValue", (runCatching { JSONArray(v.toList()).toString() }.getOrNull() ?: v.toString()).take(MAX_STRING))
             else -> o.put("stringValue", v.toString().take(MAX_STRING))
         }
         return o
