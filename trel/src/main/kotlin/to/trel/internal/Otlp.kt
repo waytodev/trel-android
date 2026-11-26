@@ -40,13 +40,37 @@ internal object Otlp {
 
     private fun nanos(ms: Long): String = (ms * 1_000_000L).toString()
 
-    fun logRecord(timestampMs: Long, level: TrelLevel, body: String, attrs: Map<String, Any?>): JSONObject =
-        JSONObject()
+    fun logRecord(timestampMs: Long, level: TrelLevel, body: String, attrs: Map<String, Any?>): JSONObject {
+        val rest = LinkedHashMap(attrs)
+        val link = takeTraceLink(rest)
+        val record = JSONObject()
             .put("timeUnixNano", nanos(timestampMs))
             .put("severityNumber", level.otlpNumber)
             .put("severityText", level.label)
             .put("body", JSONObject().put("stringValue", body.take(MAX_STRING)))
-            .put("attributes", attributes(attrs))
+            .put("attributes", attributes(rest))
+        if (link != null) record.put("traceId", link.first).put("spanId", link.second)
+        return record
+    }
+
+    private val TRACE_KEYS = listOf("trel.trace_id", Attr.TAG_PREFIX + "trace_id")
+    private val SPAN_KEYS = listOf("trel.span_id", Attr.TAG_PREFIX + "span_id")
+    private val HEX = Regex("^[0-9a-f]+$")
+
+    /**
+     * The React Native SDK passes the active trace as `trel.trace_id` / `trel.span_id` and mirrors it
+     * into tags, which in-process crashes carry. Lift it to the OTLP top-level fields so the event
+     * links to its trace, and drop the attribute copies.
+     */
+    private fun takeTraceLink(attrs: MutableMap<String, Any?>): Pair<String, String>? {
+        val traceId = TRACE_KEYS.firstNotNullOfOrNull { attrs[it] as? String }
+        val spanId = SPAN_KEYS.firstNotNullOfOrNull { attrs[it] as? String }
+        (TRACE_KEYS + SPAN_KEYS).forEach { attrs.remove(it) }
+        if (traceId == null || spanId == null) return null
+        if (traceId.length != 32 || spanId.length != 16 || !HEX.matches(traceId) || !HEX.matches(spanId)) return null
+        if (traceId.all { it == '0' } || spanId.all { it == '0' }) return null
+        return traceId to spanId
+    }
 
     fun exceptionRecord(timestampMs: Long, e: TrelEvent, fatal: Boolean): JSONObject {
         val attrs = LinkedHashMap<String, Any?>(e.attributes)
